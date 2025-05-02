@@ -4,31 +4,34 @@ include_directories(
 
 add_subdirectory(bpf)
 
-find_package(PkgConfig REQUIRED)
-# find_package(LIBBPF REQUIRED) ?
 pkg_check_modules(LIBBPF REQUIRED libbpf)
 
-add_executable(rfirewall
+add_executable(rfirewall_exec
 	rfirewall.c
 )
 
-add_dependencies(rfirewall
+# set the output directory for the executable to build/ (or the running directory)
+set_target_properties(rfirewall_exec PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
+)
+
+add_dependencies(rfirewall_exec
 	bpf_skeleton
 )
 
-target_include_directories(rfirewall SYSTEM PRIVATE
+target_include_directories(rfirewall_exec SYSTEM PRIVATE
 	${CMAKE_BINARY_DIR}/rfirewall # for skeleton
 	${LIBBPF_INCLUDE_DIRS}
 )
 
-target_link_libraries(rfirewall PRIVATE
+target_link_libraries(rfirewall_exec PRIVATE
 	${LIBBPF_LIBRARIES}
 )
 
 # target link libraries?
 # -lelf, -lz, pthread
 
-target_compile_options(rfirewall PRIVATE
+target_compile_options(rfirewall_exec PRIVATE
 	${LIBBPF_CFLAGS}
 )
 
