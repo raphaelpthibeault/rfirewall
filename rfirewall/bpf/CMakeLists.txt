@@ -1,15 +1,16 @@
 add_compile_options(-g -O2 -target bpf -D__TARGET_ARCH_x86)
 
-add_library(read OBJECT
-	read.bpf.c
+add_library(bpf_files OBJECT
+	tcpconnect.bpf.c
+	maps.bpf.h
 )
-target_include_directories(read PRIVATE
+target_include_directories(bpf_files PRIVATE
 	${CMAKE_CURRENT_BINARY_DIR}
 )
 
 add_custom_command(OUTPUT combined_bpf_lib.o
-	COMMAND bpftool gen object combined_bpf_lib.o $<TARGET_OBJECTS:read>
-	DEPENDS read
+	COMMAND bpftool gen object combined_bpf_lib.o $<TARGET_OBJECTS:bpf_files>
+	DEPENDS bpf_files
 	COMMAND_EXPAND_LISTS
 	VERBATIM
 	COMMENT "Generate combined_bpf_lib.o"
