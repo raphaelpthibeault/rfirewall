@@ -3,7 +3,7 @@
 #include <bpf/bpf_tracing.h>
 #include <bpf/bpf_helpers.h>
 #include <bpf/maps.bpf.h>
-#include <conn/tcpconnect.h>
+#include <conn/tcpconn.h>
 #include <stdbool.h>
 
 #define AF_INET 2
@@ -16,20 +16,20 @@ const volatile int filter_ports_len = 0;
 const volatile pid_t filter_pid = 0;
 const volatile uid_t filter_uid = -1;
 
-/* track socket states */
 struct {
 	__uint(type, BPF_MAP_TYPE_HASH);
 	__uint(max_entries, MAX_ENTRIES);
 	__type(key, u32);
 	__type(value, struct sock *);
 	__uint(map_flags, BPF_F_NO_PREALLOC);
-} sockets SEC(".maps");
+} connection_sockets SEC(".maps");
 
 struct {
 	__uint(type, BPF_MAP_TYPE_PERF_EVENT_ARRAY);
 	__uint(key_size, sizeof(u32));
 	__uint(value_size, sizeof(u32));
-} events SEC(".maps");
+} connection_events SEC(".maps");
+
 
 static __always_inline bool 
 filter_port(__u16 port)
@@ -64,7 +64,8 @@ trace_v4(struct pt_regs *ctx, pid_t pid, struct sock *sk, __u16 dport)
 	e.uid = bpf_get_current_uid_gid();
 	e.dport = dport;
 
-	bpf_perf_event_output(ctx, &events, BPF_F_CURRENT_CPU, &e, sizeof(e));
+	bpf_perf_event_output(ctx, &connection_events, BPF_F_CURRENT_CPU, &e, sizeof(e));
+
 }
 
 static __always_inline void
@@ -82,6 +83,7 @@ trace_v6(struct pt_regs *ctx, pid_t pid, struct sock *sk, __u16 dport)
 	e.uid = bpf_get_current_uid_gid();
 	e.dport = dport;
 
+	bpf_perf_event_output(ctx, &connection_events, BPF_F_CURRENT_CPU, &e, sizeof(e));
 }
 
 static __always_inline int
@@ -104,7 +106,7 @@ enter_tcp_connect(struct pt_regs *ctx, struct sock *sk)
 	}
 
 	/* key: traffic identifier, value: socket  ; I wonder, I could probably use pid_tgid as key */
-	bpf_map_update_elem(&sockets, &tid, &sk, 0);
+	bpf_map_update_elem(&connection_sockets, &tid, &sk, 0);
 	return 0;
 }
 
@@ -121,7 +123,7 @@ exit_tcp_connect(struct pt_regs *ctx, int ret, int ip_ver)
 	pid = pid_tgid >> 32;
 	tid = pid_tgid;
 
-	skpp = bpf_map_lookup_elem(&sockets, &tid);
+	skpp = bpf_map_lookup_elem(&connection_sockets, &tid);
 	if (skpp == NULL) {
 		return 0;
 	}
@@ -146,7 +148,7 @@ exit_tcp_connect(struct pt_regs *ctx, int ret, int ip_ver)
 	}
 
 end:
-	bpf_map_delete_elem(&sockets, &tid);
+	bpf_map_delete_elem(&connection_sockets, &tid);
 	return 0;
 }
 
@@ -173,5 +175,4 @@ int BPF_KRETPROBE(tcp_v6_connect_ret, int ret)
 {
 	return exit_tcp_connect(ctx, ret, 6);
 }
-
 

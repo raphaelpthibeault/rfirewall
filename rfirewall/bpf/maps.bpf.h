@@ -1,8 +1,9 @@
-#ifndef __MAPS_BPF_H
-#define __MAPS_BPF_H
+#ifndef __MAPS_BPF_H__
+#define __MAPS_BPF_H__
 
 #include <bpf/bpf_helpers.h>
 #include <asm-generic/errno.h>
+#include <conn/tcpconn.h>
 
 static __always_inline void *
 bpf_map_lookup_elem_or_try_create(void *map, const void *key, const void *iv)
@@ -29,5 +30,4 @@ bpf_map_lookup_elem_or_try_create(void *map, const void *key, const void *iv)
 	return bpf_map_lookup_elem(map, key);
 }
 
-#endif // !__MAPS_BPF_H
-
+#endif // !__MAPS_BPF_H__

@@ -1,5 +1,9 @@
-#ifndef __TCPCONNECT_H
-#define __TCPCONNECT_H
+#ifndef __TCPCONN_H__
+#define __TCPCONN_H__
+
+/* contains structs required by tcp*.bpf.c AND whatever files handle the tcp events
+ * so keep this very minimal
+ * */
 
 #include <asm-generic/types.h>
 
@@ -24,4 +28,4 @@ struct event {
 	__u16 dport;
 }/* __attribute__((packed)) */;
 
-#endif // !__TCPCONNECT_H
+#endif // !__TCPCONN_H__

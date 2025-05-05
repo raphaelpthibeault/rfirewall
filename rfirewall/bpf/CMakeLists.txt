@@ -1,8 +1,9 @@
 add_compile_options(-g -O2 -target bpf -D__TARGET_ARCH_x86)
 
 add_library(bpf_files OBJECT
-	tcpconnect.bpf.c
 	maps.bpf.h
+	tcpconnect.bpf.c
+	tcpaccept.bpf.c
 )
 target_include_directories(bpf_files PRIVATE
 	${CMAKE_CURRENT_BINARY_DIR}
