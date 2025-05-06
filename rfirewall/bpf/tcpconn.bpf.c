@@ -146,3 +146,25 @@ int BPF_KRETPROBE(tcp_v6_connect_ret, int ret)
 	return exit_tcp_connect(ctx, ret, AF_INET6);
 }
 
+SEC("kretprobe/inet_csk_accept")
+int BPF_KRETPROBE(inet_csk_accept_ret, struct sock *newsk)
+{
+	__u64 pid_tgid;
+	__u32 pid, tid;
+	__u16 dport;
+	sa_family_t family;
+
+	pid_tgid = bpf_get_current_pid_tgid(); // https://docs.ebpf.io/linux/helper-function/bpf_get_current_pid_tgid/
+	pid = pid_tgid >> 32;
+	tid = pid_tgid;
+
+	BPF_CORE_READ_INTO(&family, newsk, __sk_common.skc_family);
+	BPF_CORE_READ_INTO(&dport, newsk, __sk_common.skc_dport);
+
+	struct event e = {};
+	fill_event(&e, newsk, family, pid, dport);
+	bpf_perf_event_output(ctx, &events, BPF_F_CURRENT_CPU, &e, sizeof(e));
+
+	return 0;
+}
+
