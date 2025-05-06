@@ -11,6 +11,12 @@
 #define MAX_PORTS	64			/* max ports to filter */
 #define TASK_COMM_LEN 16 // https://github.com/torvalds/linux/blob/master/include/linux/sched.h#L319
 
+enum event_type {
+	TCP_EVENT_CONNECT,
+	TCP_EVENT_ACCEPT,
+	TCP_EVENT_CLOSE,
+};
+
 struct event {
 	union {
 		__u32 saddr_v4;
@@ -26,6 +32,7 @@ struct event {
 	__u32 pid;
 	__u32 uid;
 	__u16 dport;
+	__u8 type;
 }/* __attribute__((packed)) */;
 
 #endif // !__TCPCONN_H__

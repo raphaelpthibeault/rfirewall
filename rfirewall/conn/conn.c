@@ -42,7 +42,21 @@ handle_event(void *ctx, int cpu, void *data, __u32 data_sz)
 		start_ts = e->ts_us;
 	}
 
-	printf("%-9.3f %-6d %-6d %-12.12s %-2d %-16s %-16s %-4d\n",
+	char type = '-';
+	switch (e->type) {
+		case TCP_EVENT_CONNECT:
+			type = 'C';
+			break;
+		case TCP_EVENT_ACCEPT:
+			type = 'A';
+			break;
+		case TCP_EVENT_CLOSE: 
+			type = 'X';
+			break;
+	}
+
+	printf("%c %-9.3f %-6d %-6d %-12.12s %-2d %-16s %-16s %-4d\n",
+			type,
 			(e->ts_us - start_ts) / 1000000.0,
 			e->uid,
 			e->pid,
@@ -65,8 +79,8 @@ handle_lost_event(void *ctx, int cpu, __u64 lost_count)
 static void 
 print_events_header() 
 {
-	printf("%-9s %-6s %-6s %-12s %-2s %-16s %-16s %-4s\n", 
-			"TIME(s)", "UID", "PID", "COMM", "IP", "SADDR", "DADDR", "DPORT");
+	printf("%s %-9s %-6s %-6s %-12s %-2s %-16s %-16s %-4s\n", 
+			"T", "TIME(s)", "UID", "PID", "COMM", "IP", "SADDR", "DADDR", "DPORT");
 }
 
 extern volatile sig_atomic_t exiting; // definition in rfirewall.c TODO put in some io.h ?

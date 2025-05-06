@@ -29,7 +29,7 @@ struct {
 } events SEC(".maps");
 
 static __always_inline void
-fill_event(struct event *e, struct sock *sk, __u16 family, pid_t pid, __u16 dport)
+fill_event(struct event *e, struct sock *sk, __u16 family, pid_t pid, __u16 dport, __u8 type)
 {
 	if (family == AF_INET) {
 		BPF_CORE_READ_INTO(&e->saddr_v4, sk, __sk_common.skc_rcv_saddr);
@@ -45,6 +45,7 @@ fill_event(struct event *e, struct sock *sk, __u16 family, pid_t pid, __u16 dpor
 	e->pid = pid;
 	e->uid = bpf_get_current_uid_gid();
 	e->dport = dport;
+	e->type = type;
 }
 
 static __always_inline bool
@@ -114,7 +115,7 @@ exit_tcp_connect(struct pt_regs *ctx, int ret, __u16 family)
 	BPF_CORE_READ_INTO(&dport, sk, __sk_common.skc_dport);
 
 	struct event e = {};
-	fill_event(&e, sk, family, pid, dport);
+	fill_event(&e, sk, family, pid, dport, TCP_EVENT_CONNECT);
 	bpf_perf_event_output(ctx, &events, BPF_F_CURRENT_CPU, &e, sizeof(e));
 
 end:
@@ -162,7 +163,7 @@ int BPF_KRETPROBE(inet_csk_accept_ret, struct sock *newsk)
 	BPF_CORE_READ_INTO(&dport, newsk, __sk_common.skc_dport);
 
 	struct event e = {};
-	fill_event(&e, newsk, family, pid, dport);
+	fill_event(&e, newsk, family, pid, dport, TCP_EVENT_ACCEPT);
 	bpf_perf_event_output(ctx, &events, BPF_F_CURRENT_CPU, &e, sizeof(e));
 
 	return 0;
