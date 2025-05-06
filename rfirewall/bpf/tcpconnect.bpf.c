@@ -11,8 +11,6 @@
 
 char LICENSE[] SEC("license") = "GPL";
 
-SEC(".rodata") const int filter_ports[MAX_PORTS]; // empty, for now
-const volatile int filter_ports_len = 0;
 const volatile pid_t filter_pid = 0;
 const volatile uid_t filter_uid = -1;
 
@@ -22,68 +20,52 @@ struct {
 	__type(key, u32);
 	__type(value, struct sock *);
 	__uint(map_flags, BPF_F_NO_PREALLOC);
-} connection_sockets SEC(".maps");
+} sockets SEC(".maps");
 
 struct {
 	__uint(type, BPF_MAP_TYPE_PERF_EVENT_ARRAY);
 	__uint(key_size, sizeof(u32));
 	__uint(value_size, sizeof(u32));
-} connection_events SEC(".maps");
+} events SEC(".maps");
 
-
-static __always_inline bool 
-filter_port(__u16 port)
+static __always_inline void
+fill_event(struct event *e, struct sock *sk, __u16 family, pid_t pid, __u16 dport)
 {
-	int i;
-
-	if (filter_ports_len == 0) {
-		return false;
+	if (family == AF_INET) {
+		BPF_CORE_READ_INTO(&e->saddr_v4, sk, __sk_common.skc_rcv_saddr);
+		BPF_CORE_READ_INTO(&e->daddr_v4, sk, __sk_common.skc_daddr);
+	} else if (family == AF_INET6) {
+		BPF_CORE_READ_INTO(&e->saddr_v6, sk, __sk_common.skc_v6_rcv_saddr.in6_u.u6_addr32);
+		BPF_CORE_READ_INTO(&e->daddr_v6, sk, __sk_common.skc_v6_daddr.in6_u.u6_addr32);
 	}
 
-	for (i = 0; i < filter_ports_len; ++i) {
-		if (port == filter_ports[i]) {
-			return false;
-		}
-	} 
-
-	return true;
+	bpf_get_current_comm(e->task, sizeof(e->task));
+	e->ts_us = bpf_ktime_get_ns() / 1000;
+	e->af = family;
+	e->pid = pid;
+	e->uid = bpf_get_current_uid_gid();
+	e->dport = dport;
 }
 
-static __always_inline void
-trace_v4(struct pt_regs *ctx, pid_t pid, struct sock *sk, __u16 dport)
+static __always_inline bool
+filter_event(struct sock *sk, __u32 pid, __u32 uid)
 {
-	struct event e = {};
+	__u16 family;
+	family = BPF_CORE_READ(sk, __sk_common.skc_family);
 
-	BPF_CORE_READ_INTO(&e.saddr_v4, sk, __sk_common.skc_rcv_saddr);
-	BPF_CORE_READ_INTO(&e.daddr_v4, sk, __sk_common.skc_daddr);
+	if (family != AF_INET && family != AF_INET6) {
+		return true;
+	}
 
-	bpf_get_current_comm(e.task, sizeof(e.task));
-	e.ts_us = bpf_ktime_get_ns() / 1000;
-	e.af = AF_INET;
-	e.pid = pid;
-	e.uid = bpf_get_current_uid_gid();
-	e.dport = dport;
+	if (filter_pid && pid != filter_pid) {
+		return true;
+	}
 
-	bpf_perf_event_output(ctx, &connection_events, BPF_F_CURRENT_CPU, &e, sizeof(e));
+	if (filter_uid != (uid_t)-1 && uid != filter_uid) {
+		return true;
+	}
 
-}
-
-static __always_inline void
-trace_v6(struct pt_regs *ctx, pid_t pid, struct sock *sk, __u16 dport)
-{
-	struct event e = {};
-
-	BPF_CORE_READ_INTO(&e.saddr_v6, sk, __sk_common.skc_v6_rcv_saddr.in6_u.u6_addr32);
-	BPF_CORE_READ_INTO(&e.daddr_v6, sk, __sk_common.skc_v6_daddr.in6_u.u6_addr32);
-
-	bpf_get_current_comm(e.task, sizeof(e.task));
-	e.ts_us = bpf_ktime_get_ns() / 1000;
-	e.af = AF_INET6;
-	e.pid = pid;
-	e.uid = bpf_get_current_uid_gid();
-	e.dport = dport;
-
-	bpf_perf_event_output(ctx, &connection_events, BPF_F_CURRENT_CPU, &e, sizeof(e));
+	return false;
 }
 
 static __always_inline int
@@ -96,22 +78,18 @@ enter_tcp_connect(struct pt_regs *ctx, struct sock *sk)
 	pid = pid_tgid >> 32;
 	tid = pid_tgid;
 
-	if (filter_pid && pid != filter_pid) {
-		return 0;
-	}
-
 	uid = bpf_get_current_uid_gid(); // https://docs.ebpf.io/linux/helper-function/bpf_get_current_uid_gid/
-	if (filter_uid != (uid_t)-1 && uid != filter_uid) {
-		return 0;
+	if (filter_event(sk, pid, uid)) {
+		return 0; // drop pkt
 	}
 
 	/* key: traffic identifier, value: socket  ; I wonder, I could probably use pid_tgid as key */
-	bpf_map_update_elem(&connection_sockets, &tid, &sk, 0);
+	bpf_map_update_elem(&sockets, &tid, &sk, 0);
 	return 0;
 }
 
 static __always_inline int
-exit_tcp_connect(struct pt_regs *ctx, int ret, int ip_ver)
+exit_tcp_connect(struct pt_regs *ctx, int ret, __u16 family)
 {
 	__u64 pid_tgid;
 	__u32 pid, tid;
@@ -123,7 +101,7 @@ exit_tcp_connect(struct pt_regs *ctx, int ret, int ip_ver)
 	pid = pid_tgid >> 32;
 	tid = pid_tgid;
 
-	skpp = bpf_map_lookup_elem(&connection_sockets, &tid);
+	skpp = bpf_map_lookup_elem(&sockets, &tid);
 	if (skpp == NULL) {
 		return 0;
 	}
@@ -134,21 +112,13 @@ exit_tcp_connect(struct pt_regs *ctx, int ret, int ip_ver)
 
 	sk = *skpp;
 	BPF_CORE_READ_INTO(&dport, sk, __sk_common.skc_dport);
-	if (filter_port(dport)) {
-		goto end;
-	}
 
-	if (ip_ver == 4) {
-		trace_v4(ctx, pid, sk, dport);
-	} else if (ip_ver == 6) {
-		trace_v6(ctx, pid, sk, dport);	
-	} else {
-		// the fuck are you doing?
-		goto end;
-	}
+	struct event e = {};
+	fill_event(&e, sk, family, pid, dport);
+	bpf_perf_event_output(ctx, &events, BPF_F_CURRENT_CPU, &e, sizeof(e));
 
 end:
-	bpf_map_delete_elem(&connection_sockets, &tid);
+	bpf_map_delete_elem(&sockets, &tid);
 	return 0;
 }
 
@@ -161,7 +131,7 @@ int BPF_KPROBE(tcp_v4_connect, struct sock *sk)
 SEC("kretprobe/tcp_v4_connect")
 int BPF_KRETPROBE(tcp_v4_connect_ret, int ret)
 {
-	return exit_tcp_connect(ctx, ret, 4);
+	return exit_tcp_connect(ctx, ret, AF_INET);
 }
 
 SEC("kprobe/tcp_v6_connect")
@@ -173,6 +143,6 @@ int BPF_KPROBE(tcp_v6_connect, struct sock *sk)
 SEC("kretprobe/tcp_v6_connect")
 int BPF_KRETPROBE(tcp_v6_connect_ret, int ret)
 {
-	return exit_tcp_connect(ctx, ret, 6);
+	return exit_tcp_connect(ctx, ret, AF_INET6);
 }
 
