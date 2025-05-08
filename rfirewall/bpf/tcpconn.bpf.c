@@ -92,11 +92,12 @@ enter_tcp_connect(struct pt_regs *ctx, struct sock *sk)
 static __always_inline int
 exit_tcp_connect(struct pt_regs *ctx, int ret, __u16 family)
 {
+	struct sock *sk;
+	struct sock **skpp;
+	struct event e = {};
 	__u64 pid_tgid;
 	__u32 pid, tid;
 	__u16 dport;
-	struct sock *sk;
-	struct sock **skpp;
 	
 	pid_tgid = bpf_get_current_pid_tgid(); // https://docs.ebpf.io/linux/helper-function/bpf_get_current_pid_tgid/
 	pid = pid_tgid >> 32;
@@ -114,7 +115,6 @@ exit_tcp_connect(struct pt_regs *ctx, int ret, __u16 family)
 	sk = *skpp;
 	BPF_CORE_READ_INTO(&dport, sk, __sk_common.skc_dport);
 
-	struct event e = {};
 	fill_event(&e, sk, family, pid, dport, TCP_EVENT_CONNECT);
 	bpf_perf_event_output(ctx, &events, BPF_F_CURRENT_CPU, &e, sizeof(e));
 
@@ -150,6 +150,7 @@ int BPF_KRETPROBE(tcp_v6_connect_ret, int ret)
 SEC("kretprobe/inet_csk_accept")
 int BPF_KRETPROBE(inet_csk_accept_ret, struct sock *newsk)
 {
+	struct event e = {};
 	__u64 pid_tgid;
 	__u32 pid, tid;
 	__u16 dport;
@@ -162,8 +163,47 @@ int BPF_KRETPROBE(inet_csk_accept_ret, struct sock *newsk)
 	BPF_CORE_READ_INTO(&family, newsk, __sk_common.skc_family);
 	BPF_CORE_READ_INTO(&dport, newsk, __sk_common.skc_dport);
 
-	struct event e = {};
 	fill_event(&e, newsk, family, pid, dport, TCP_EVENT_ACCEPT);
+	bpf_perf_event_output(ctx, &events, BPF_F_CURRENT_CPU, &e, sizeof(e));
+
+	return 0;
+}
+
+/* workaround for not having entry_trace_close*/
+SEC("kprobe/tcp_close")
+int kprobe__tcp_close(struct pt_regs *ctx)
+{
+	struct sock *sk;
+	struct event e = {};
+	__u64 pid_tgid, uid_gid;
+	__u32 pid, uid;
+	__u16 dport;
+	sa_family_t family;
+	__u8 oldstate;
+
+	sk = (struct sock *)PT_REGS_PARM1(ctx);
+
+	pid_tgid = bpf_get_current_pid_tgid();
+	pid = pid_tgid >> 32;
+
+	uid_gid = bpf_get_current_uid_gid();
+	uid = uid_gid;
+	
+
+	if (filter_event(sk, pid, uid)) {
+		return 0;
+	}
+
+	/* do not generate close event for unestablished connections */
+	oldstate = BPF_CORE_READ(sk, __sk_common.skc_num);
+	if (oldstate == TCP_SYN_SENT || oldstate == TCP_SYN_RECV || oldstate == TCP_NEW_SYN_RECV) {
+		return 0;
+	}
+
+	BPF_CORE_READ_INTO(&family, sk, __sk_common.skc_family);
+	BPF_CORE_READ_INTO(&dport, sk, __sk_common.skc_dport);
+
+	fill_event(&e, sk, family, pid, dport, TCP_EVENT_CLOSE);
 	bpf_perf_event_output(ctx, &events, BPF_F_CURRENT_CPU, &e, sizeof(e));
 
 	return 0;

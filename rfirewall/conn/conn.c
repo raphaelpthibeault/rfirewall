@@ -34,7 +34,7 @@ handle_event(void *ctx, int cpu, void *data, __u32 data_sz)
 		memcpy(&s.x6.s6_addr, e->saddr_v6, sizeof(s.x6.s6_addr)); 		
 		memcpy(&d.x6.s6_addr, e->daddr_v6, sizeof(d.x6.s6_addr)); 		
 	} else {
-		fprintf(stderr, "Broken event: e->af=%d", e->af);
+		fprintf(stderr, "Broken event: e->af=%d\n", e->af);
 		return;
 	}
 
@@ -66,7 +66,7 @@ handle_event(void *ctx, int cpu, void *data, __u32 data_sz)
 			inet_ntop(e->af, &d, dst, sizeof(dst)),
 			ntohs(e->dport));
 
-	// add to connection table
+	// TODO: add to connection table
 
 }
 
