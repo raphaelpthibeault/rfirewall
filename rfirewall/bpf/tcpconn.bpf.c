@@ -185,7 +185,6 @@ int kprobe__tcp_close(struct pt_regs *ctx)
 
 	pid_tgid = bpf_get_current_pid_tgid();
 	pid = pid_tgid >> 32;
-
 	uid_gid = bpf_get_current_uid_gid();
 	uid = uid_gid;
 	
@@ -204,6 +203,33 @@ int kprobe__tcp_close(struct pt_regs *ctx)
 	BPF_CORE_READ_INTO(&dport, sk, __sk_common.skc_dport);
 
 	fill_event(&e, sk, family, pid, dport, TCP_EVENT_CLOSE);
+	bpf_perf_event_output(ctx, &events, BPF_F_CURRENT_CPU, &e, sizeof(e));
+
+	return 0;
+}
+
+SEC("kprobe/tcp_set_state")
+int BPF_KPROBE(enter_tcp_set_state, struct sock *sk, int state) 
+{
+	struct event e = {};
+	sa_family_t family;
+	__u64 pid_tgid, uid_gid;
+	__u32 pid, uid;
+	__u16 dport;
+
+	if ((state != TCP_ESTABLISHED && state != TCP_CLOSE) || state == TCP_CLOSE) {
+		return 0;
+	}	
+
+	pid_tgid = bpf_get_current_pid_tgid();
+	pid = pid_tgid >> 32;
+	uid_gid = bpf_get_current_uid_gid();
+	uid = uid_gid;
+
+	BPF_CORE_READ_INTO(&family, sk, __sk_common.skc_family);
+	BPF_CORE_READ_INTO(&dport, sk, __sk_common.skc_dport);
+	
+	fill_event(&e, sk, family, pid, dport, TCP_EVENT_CONNECT);
 	bpf_perf_event_output(ctx, &events, BPF_F_CURRENT_CPU, &e, sizeof(e));
 
 	return 0;
