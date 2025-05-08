@@ -9,13 +9,15 @@
 #include <bpf/bpf_helpers.h>
 #include <bpf/maps.bpf.h>
 
-struct Events_Map {
-	__uint(type, BPF_MAP_TYPE_PERF_EVENT_ARRAY);
-	__uint(key_size, sizeof(__u32));
-	__uint(value_size, sizeof(__u32));
+struct events_buf {
+	__uint(type, BPF_MAP_TYPE_RINGBUF);
+	__uint(max_entries, 4096*64); // must be multiple of 4096 (page size)
 };
 
-extern struct Events_Map events;
+extern struct events_buf events;
+
+
+
 
 static __always_inline void *
 bpf_map_lookup_elem_or_try_create(void *map, const void *key, const void *iv)

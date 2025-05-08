@@ -15,10 +15,10 @@
 
 #include <fcntl.h>
 
-static void
-handle_event(void *ctx, int cpu, void *data, __u32 data_sz)
+static int
+handle_event(void *ctx, void *data, size_t data_sz)
 {
-	const struct event *e = data;
+	const struct ebpf_event *e = data;
 	char src[INET6_ADDRSTRLEN];
 	char dst[INET6_ADDRSTRLEN];
 	union {
@@ -35,7 +35,7 @@ handle_event(void *ctx, int cpu, void *data, __u32 data_sz)
 		memcpy(&d.x6.s6_addr, e->daddr_v6, sizeof(d.x6.s6_addr)); 		
 	} else {
 		fprintf(stderr, "Broken event: e->af=%d\n", e->af);
-		return;
+		return 1;
 	}
 
 	if (start_ts == 0) {
@@ -68,12 +68,7 @@ handle_event(void *ctx, int cpu, void *data, __u32 data_sz)
 
 	// TODO: add to connection table
 
-}
-
-static void
-handle_lost_event(void *ctx, int cpu, __u64 lost_count)
-{
-	fprintf(stderr, "Lost '%llu' events on CPU #%d\n", lost_count, cpu);	
+	return 0;
 }
 
 static void 
@@ -86,14 +81,15 @@ print_events_header()
 extern volatile sig_atomic_t exiting; // definition in rfirewall.c TODO put in some io.h ?
 
 void
-print_events(int perf_map_fd) 
+print_events(int ringbuf_fd) 
 {
-	struct perf_buffer *pbuf;	
+	struct ring_buffer *rb;
 	int err;
 
-	pbuf = perf_buffer__new(perf_map_fd, 128, handle_event, handle_lost_event, NULL, NULL);
-	if (pbuf == NULL) {
-		fprintf(stderr, "Error with perf_buffer__new() '%d', '%s'",
+	rb = ring_buffer__new(ringbuf_fd, &handle_event, NULL, NULL);
+
+	if (rb == NULL) {
+		fprintf(stderr, "Error with ring_buffer__new() '%d', '%s'",
 			errno, strerror(errno));
 		err = -errno;
 		goto cleanup;
@@ -102,9 +98,9 @@ print_events(int perf_map_fd)
 	print_events_header();
 
 	while (!exiting) {
-		err = perf_buffer__poll(pbuf, 100);
+		err = ring_buffer__poll(rb, 100);
 		if (err < 0 && err != -EINTR) {
-			fprintf(stderr, "Error polling perf buffer '%d', '%s'", -err, strerror(-err));
+			fprintf(stderr, "Error polling ring buffer '%d', '%s'", -err, strerror(-err));
 			goto cleanup;
 		}
 		err = 0; /* reset err to return 0 if exiting */
@@ -112,6 +108,6 @@ print_events(int perf_map_fd)
 
 	
 cleanup:
-	perf_buffer__free(pbuf);
+	ring_buffer__free(rb);
 }
 

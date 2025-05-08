@@ -1,4 +1,4 @@
 #include <bpf/maps.bpf.h>
 
-struct Events_Map events SEC(".maps");
+struct events_buf events SEC(".maps");
 

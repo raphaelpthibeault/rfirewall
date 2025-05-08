@@ -17,7 +17,7 @@ enum event_type {
 	TCP_EVENT_CLOSE,
 };
 
-struct event {
+struct ebpf_event {
 	union {
 		__u32 saddr_v4;
 		__u8 saddr_v6[16]; // 128 bit addresses for v6
@@ -26,12 +26,13 @@ struct event {
 		__u32 daddr_v4;
 		__u8 daddr_v6[16];
 	};
+	__u16 sport;
+	__u16 dport;
 	char task[TASK_COMM_LEN];
 	__u64 ts_us;
 	__u32 af; // AF_INET or AF_INET6
 	__u32 pid;
 	__u32 uid;
-	__u16 dport;
 	__u8 type;
 }/* __attribute__((packed)) */;
 

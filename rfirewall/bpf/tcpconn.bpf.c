@@ -24,7 +24,7 @@ struct {
 
 
 static __always_inline void
-fill_event(struct event *e, struct sock *sk, __u16 family, pid_t pid, __u16 dport, __u8 type)
+fill_event(struct ebpf_event *e, struct sock *sk, __u16 family, pid_t pid, __u16 dport, __u8 type)
 {
 	if (family == AF_INET) {
 		BPF_CORE_READ_INTO(&e->saddr_v4, sk, __sk_common.skc_rcv_saddr);
@@ -89,7 +89,7 @@ exit_tcp_connect(struct pt_regs *ctx, int ret, __u16 family)
 {
 	struct sock *sk;
 	struct sock **skpp;
-	struct event e = {};
+	struct ebpf_event *e;
 	__u64 pid_tgid;
 	__u32 pid, tid;
 	__u16 dport;
@@ -110,8 +110,13 @@ exit_tcp_connect(struct pt_regs *ctx, int ret, __u16 family)
 	sk = *skpp;
 	BPF_CORE_READ_INTO(&dport, sk, __sk_common.skc_dport);
 
-	fill_event(&e, sk, family, pid, dport, TCP_EVENT_CONNECT);
-	bpf_perf_event_output(ctx, &events, BPF_F_CURRENT_CPU, &e, sizeof(e));
+
+	e = bpf_ringbuf_reserve(&events, sizeof(struct ebpf_event), 0);
+	if (e == NULL) {
+		return 0;
+	}
+	fill_event(e, sk, family, pid, dport, TCP_EVENT_CONNECT);
+	bpf_ringbuf_submit(e, 0);
 
 end:
 	bpf_map_delete_elem(&sockets, &tid);
@@ -145,7 +150,7 @@ int BPF_KRETPROBE(tcp_v6_connect_ret, int ret)
 SEC("kretprobe/inet_csk_accept")
 int BPF_KRETPROBE(inet_csk_accept_ret, struct sock *newsk)
 {
-	struct event e = {};
+	struct ebpf_event *e;
 	__u64 pid_tgid;
 	__u32 pid, tid;
 	__u16 dport;
@@ -158,8 +163,12 @@ int BPF_KRETPROBE(inet_csk_accept_ret, struct sock *newsk)
 	BPF_CORE_READ_INTO(&family, newsk, __sk_common.skc_family);
 	BPF_CORE_READ_INTO(&dport, newsk, __sk_common.skc_dport);
 
-	fill_event(&e, newsk, family, pid, dport, TCP_EVENT_ACCEPT);
-	bpf_perf_event_output(ctx, &events, BPF_F_CURRENT_CPU, &e, sizeof(e));
+	e = bpf_ringbuf_reserve(&events, sizeof(struct ebpf_event), 0);
+	if (e == NULL) {
+		return 0;
+	}
+	fill_event(e, newsk, family, pid, dport, TCP_EVENT_ACCEPT);
+	bpf_ringbuf_submit(e, 0);
 
 	return 0;
 }
@@ -169,7 +178,7 @@ SEC("kprobe/tcp_close")
 int kprobe__tcp_close(struct pt_regs *ctx)
 {
 	struct sock *sk;
-	struct event e = {};
+	struct ebpf_event *e;
 	__u64 pid_tgid, uid_gid;
 	__u32 pid, uid;
 	__u16 dport;
@@ -197,35 +206,12 @@ int kprobe__tcp_close(struct pt_regs *ctx)
 	BPF_CORE_READ_INTO(&family, sk, __sk_common.skc_family);
 	BPF_CORE_READ_INTO(&dport, sk, __sk_common.skc_dport);
 
-	fill_event(&e, sk, family, pid, dport, TCP_EVENT_CLOSE);
-	bpf_perf_event_output(ctx, &events, BPF_F_CURRENT_CPU, &e, sizeof(e));
-
-	return 0;
-}
-
-SEC("kprobe/tcp_set_state")
-int BPF_KPROBE(enter_tcp_set_state, struct sock *sk, int state) 
-{
-	struct event e = {};
-	sa_family_t family;
-	__u64 pid_tgid, uid_gid;
-	__u32 pid, uid;
-	__u16 dport;
-
-	if ((state != TCP_ESTABLISHED && state != TCP_CLOSE) || state == TCP_CLOSE) {
+	e = bpf_ringbuf_reserve(&events, sizeof(struct ebpf_event), 0);
+	if (e == NULL) {
 		return 0;
-	}	
-
-	pid_tgid = bpf_get_current_pid_tgid();
-	pid = pid_tgid >> 32;
-	uid_gid = bpf_get_current_uid_gid();
-	uid = uid_gid;
-
-	BPF_CORE_READ_INTO(&family, sk, __sk_common.skc_family);
-	BPF_CORE_READ_INTO(&dport, sk, __sk_common.skc_dport);
-	
-	fill_event(&e, sk, family, pid, dport, TCP_EVENT_CONNECT);
-	bpf_perf_event_output(ctx, &events, BPF_F_CURRENT_CPU, &e, sizeof(e));
+	}
+	fill_event(e, sk, family, pid, dport, TCP_EVENT_CLOSE);
+	bpf_ringbuf_submit(e, 0);
 
 	return 0;
 }
