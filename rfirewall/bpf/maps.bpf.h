@@ -1,9 +1,21 @@
 #ifndef __MAPS_BPF_H__
 #define __MAPS_BPF_H__
 
-#include <bpf/bpf_helpers.h>
+#include <vmlinux.h> // first
 #include <asm-generic/errno.h>
 #include <conn/tcpconn.h>
+#include <bpf/bpf_core_read.h>
+#include <bpf/bpf_tracing.h>
+#include <bpf/bpf_helpers.h>
+#include <bpf/maps.bpf.h>
+
+struct Events_Map {
+	__uint(type, BPF_MAP_TYPE_PERF_EVENT_ARRAY);
+	__uint(key_size, sizeof(__u32));
+	__uint(value_size, sizeof(__u32));
+};
+
+extern struct Events_Map events;
 
 static __always_inline void *
 bpf_map_lookup_elem_or_try_create(void *map, const void *key, const void *iv)

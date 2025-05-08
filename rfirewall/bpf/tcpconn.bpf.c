@@ -22,11 +22,6 @@ struct {
 	__uint(map_flags, BPF_F_NO_PREALLOC);
 } sockets SEC(".maps");
 
-struct {
-	__uint(type, BPF_MAP_TYPE_PERF_EVENT_ARRAY);
-	__uint(key_size, sizeof(u32));
-	__uint(value_size, sizeof(u32));
-} events SEC(".maps");
 
 static __always_inline void
 fill_event(struct event *e, struct sock *sk, __u16 family, pid_t pid, __u16 dport, __u8 type)
