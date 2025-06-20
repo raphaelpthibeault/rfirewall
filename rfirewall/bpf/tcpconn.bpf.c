@@ -41,6 +41,7 @@ fill_event(struct ebpf_event *e, struct sock *sk, __u16 family, pid_t pid, __u16
 	e->uid = bpf_get_current_uid_gid();
 	e->dport = dport;
 	e->type = type;
+	BPF_CORE_READ_INTO(&e->protocol, sk, sk_protocol);
 }
 
 static __always_inline bool

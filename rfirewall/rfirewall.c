@@ -87,7 +87,7 @@ main(void)
 	}
 
 	printf("... Press Ctrl+C to stop.\n");
-	print_events(bpf_map__fd(obj->maps.events));
+	read_bpf_ringbuf(bpf_map__fd(obj->maps.events));
 	printf("\nExiting...\n");
 	
 cleanup:

@@ -13,7 +13,11 @@
 #include <arpa/inet.h>
 #include <time.h>
 
+#include <rradix.h>
+
 #include <fcntl.h>
+
+radix_tree *t = NULL;
 
 static int
 handle_event(void *ctx, void *data, size_t data_sz)
@@ -27,23 +31,27 @@ handle_event(void *ctx, void *data, size_t data_sz)
 	} s, d;
 	static __u64 start_ts;
 
-	if (e->af == AF_INET) {
+	if (e->af == AF_INET) 
+	{
 		s.x4.s_addr = e->saddr_v4;
 		d.x4.s_addr = e->daddr_v4;
-	} else if (e->af == AF_INET6) {
+	} 
+	else if (e->af == AF_INET6) 
+	{
 		memcpy(&s.x6.s6_addr, e->saddr_v6, sizeof(s.x6.s6_addr)); 		
 		memcpy(&d.x6.s6_addr, e->daddr_v6, sizeof(d.x6.s6_addr)); 		
-	} else {
+	} else 
+	{
 		fprintf(stderr, "Broken event: e->af=%d\n", e->af);
 		return 1;
 	}
 
-	if (start_ts == 0) {
+	if (start_ts == 0)
 		start_ts = e->ts_us;
-	}
 
 	char type = '-';
-	switch (e->type) {
+	switch (e->type) 
+	{
 		case TCP_EVENT_CONNECT:
 			type = 'C';
 			break;
@@ -66,7 +74,33 @@ handle_event(void *ctx, void *data, size_t data_sz)
 			inet_ntop(e->af, &d, dst, sizeof(dst)),
 			ntohs(e->dport));
 
-	// TODO: add to connection table
+	conn_key_t key;
+	key.protocol = e->protocol;
+	key.af_family = e->af;
+	if (e->af == AF_INET) 
+	{
+		key.saddr_v4 = e->saddr_v4;
+		key.daddr_v4 = e->daddr_v4;
+	} 
+	else if (e->af == AF_INET6) 
+	{
+		memcpy(&key.saddr_v6, e->saddr_v6, sizeof(key.saddr_v6));
+		memcpy(&key.daddr_v6, e->daddr_v6, sizeof(key.daddr_v6));
+	}
+	key.sport = ntohs(e->sport);
+	key.dport = ntohs(e->dport);
+
+	// normally I would hash this key, but whatever
+	
+	// key is meant to be bi-directional
+	if (e->type == TCP_EVENT_CONNECT || e->type == TCP_EVENT_ACCEPT)
+	{
+		// insert 1 temporarily until connection data struct
+		radix_insert(t, (uint8_t *)&key, sizeof(key), (void *)(long)1, NULL);
+	} else if (e->type == TCP_EVENT_CLOSE)
+	{
+		radix_del(t, (uint8_t *)&key, sizeof(key), NULL);
+	}
 
 	return 0;
 }
@@ -81,13 +115,14 @@ print_events_header()
 extern volatile sig_atomic_t exiting; // definition in rfirewall.c TODO put in some io.h ?
 
 void
-print_events(int ringbuf_fd) 
+read_bpf_ringbuf(int ringbuf_fd) 
 {
 	struct ring_buffer *rb;
 	int err;
 
 	rb = ring_buffer__new(ringbuf_fd, &handle_event, NULL, NULL);
-
+	t = radix_new();
+	
 	if (rb == NULL) {
 		fprintf(stderr, "Error with ring_buffer__new() '%d', '%s'",
 			errno, strerror(errno));

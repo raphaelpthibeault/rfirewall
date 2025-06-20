@@ -7,7 +7,6 @@ project(rfirewall
 set(CMAKE_C_COMPILER "clang-18")
 set(CMAKE_C_STANDARD 23)
 
-
 add_compile_options(-Wall -Wextra)
 
 find_package(PkgConfig REQUIRED)

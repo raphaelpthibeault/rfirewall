@@ -11,18 +11,22 @@
 #define MAX_PORTS	64			/* max ports to filter */
 #define TASK_COMM_LEN 16 // https://github.com/torvalds/linux/blob/master/include/linux/sched.h#L319
 
-enum event_type {
+enum event_type 
+{
 	TCP_EVENT_CONNECT,
 	TCP_EVENT_ACCEPT,
 	TCP_EVENT_CLOSE,
 };
 
-struct ebpf_event {
-	union {
+struct ebpf_event 
+{
+	union 
+	{
 		__u32 saddr_v4;
 		__u8 saddr_v6[16]; // 128 bit addresses for v6
 	};
-	union {
+	union 
+	{
 		__u32 daddr_v4;
 		__u8 daddr_v6[16];
 	};
@@ -34,6 +38,30 @@ struct ebpf_event {
 	__u32 pid;
 	__u32 uid;
 	__u8 type;
-}/* __attribute__((packed)) */;
+	__u8 protocol;
+};
+
+// https://www.iana.org/assignments/protocol-numbers/protocol-numbers.xhtml
+typedef enum
+{
+	HOPOPT    = 0,
+	ICMP      = 1,
+	IGMP      = 2,
+	GGP       = 3,
+	IPV4      = 4,
+	ST        = 5,
+	TCP       = 6,
+	CBT       = 7,
+	EGP       = 8,
+	IGP       = 9,
+	BBNRCCMON = 10,
+	NVPII     = 11,
+	PUP       = 12,
+	ARGUS     = 13,
+	EMCON     = 14,
+	XNET      = 15,
+	CHAOS     = 16,
+	UDP       = 17
+} ip_protocol_t;
 
 #endif // !__TCPCONN_H__

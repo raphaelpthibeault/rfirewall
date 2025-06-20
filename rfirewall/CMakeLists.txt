@@ -1,5 +1,6 @@
 include_directories(
 	${CMAKE_CURRENT_SOURCE_DIR}
+	lib/
 )
 
 add_subdirectory(bpf)
@@ -9,6 +10,7 @@ pkg_check_modules(LIBBPF REQUIRED libbpf)
 add_executable(rfirewall_exec
 	rfirewall.c
 	conn/conn.c
+	lib/rradix.c
 )
 
 # set the output directory for the executable to build/ (or the running directory)
