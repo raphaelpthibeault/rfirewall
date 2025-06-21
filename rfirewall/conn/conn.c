@@ -17,11 +17,14 @@
 
 #include <fcntl.h>
 
-radix_tree *t = NULL;
+radix_tree *connections = NULL;
 
 static int
 handle_event(void *ctx, void *data, size_t data_sz)
 {
+	(void)ctx;
+	(void)data_sz;
+
 	const struct ebpf_event *e = data;
 	char src[INET6_ADDRSTRLEN];
 	char dst[INET6_ADDRSTRLEN];
@@ -90,22 +93,19 @@ handle_event(void *ctx, void *data, size_t data_sz)
 	key.sport = ntohs(e->sport);
 	key.dport = ntohs(e->dport);
 
-	// normally I would hash this key, but whatever
-	
-	// key is meant to be bi-directional
 	if (e->type == TCP_EVENT_CONNECT || e->type == TCP_EVENT_ACCEPT)
 	{
 		// insert 1 temporarily until connection data struct
-		radix_insert(t, (uint8_t *)&key, sizeof(key), (void *)(long)1, NULL);
+		radix_insert(connections, (uint8_t *)&key, sizeof(key), (void *)(long)1, NULL);
 	} else if (e->type == TCP_EVENT_CLOSE)
 	{
-		radix_del(t, (uint8_t *)&key, sizeof(key), NULL);
+		radix_del(connections, (uint8_t *)&key, sizeof(key), NULL);
 	}
 
 	return 0;
 }
 
-static void 
+static inline __attribute__((always_inline)) void 
 print_events_header() 
 {
 	printf("%s %-9s %-6s %-6s %-12s %-2s %-16s %-16s %-4s\n", 
@@ -121,7 +121,7 @@ read_bpf_ringbuf(int ringbuf_fd)
 	int err;
 
 	rb = ring_buffer__new(ringbuf_fd, &handle_event, NULL, NULL);
-	t = radix_new();
+	connections = radix_new();
 	
 	if (rb == NULL) {
 		fprintf(stderr, "Error with ring_buffer__new() '%d', '%s'",

@@ -54,7 +54,7 @@ filter_event(struct sock *sk, __u32 pid, __u32 uid)
 		return true;
 	}
 
-	if (filter_pid && pid != filter_pid) {
+	if (filter_pid && (int)pid != filter_pid) {
 		return true;
 	}
 
@@ -68,6 +68,8 @@ filter_event(struct sock *sk, __u32 pid, __u32 uid)
 static __always_inline int
 enter_tcp_connect(struct pt_regs *ctx, struct sock *sk)
 {
+	(void)ctx;
+
 	__u64 pid_tgid;
 	__u32 pid, tid, uid;
 
@@ -88,6 +90,8 @@ enter_tcp_connect(struct pt_regs *ctx, struct sock *sk)
 static __always_inline int
 exit_tcp_connect(struct pt_regs *ctx, int ret, __u16 family)
 {
+	(void)ctx;
+
 	struct sock *sk;
 	struct sock **skpp;
 	struct ebpf_event *e;
@@ -151,15 +155,16 @@ int BPF_KRETPROBE(tcp_v6_connect_ret, int ret)
 SEC("kretprobe/inet_csk_accept")
 int BPF_KRETPROBE(inet_csk_accept_ret, struct sock *newsk)
 {
+	(void)ctx;
+
 	struct ebpf_event *e;
 	__u64 pid_tgid;
-	__u32 pid, tid;
+	__u32 pid;
 	__u16 dport;
 	sa_family_t family;
 
 	pid_tgid = bpf_get_current_pid_tgid(); // https://docs.ebpf.io/linux/helper-function/bpf_get_current_pid_tgid/
 	pid = pid_tgid >> 32;
-	tid = pid_tgid;
 
 	BPF_CORE_READ_INTO(&family, newsk, __sk_common.skc_family);
 	BPF_CORE_READ_INTO(&dport, newsk, __sk_common.skc_dport);
