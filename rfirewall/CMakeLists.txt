@@ -11,6 +11,7 @@ add_executable(rfirewall_exec
 	rfirewall.c
 	conn/conn.c
 	lib/rradix.c
+	conn/packets.c
 )
 
 # set the output directory for the executable to build/ (or the running directory)
@@ -29,10 +30,11 @@ target_include_directories(rfirewall_exec SYSTEM PRIVATE
 
 target_link_libraries(rfirewall_exec PRIVATE
 	${LIBBPF_LIBRARIES}
+	netfilter_queue
+	pthread
+	nfnetlink
+	mnl
 )
-
-# target link libraries?
-# -lelf, -lz, pthread
 
 target_compile_options(rfirewall_exec PRIVATE
 	${LIBBPF_CFLAGS}
