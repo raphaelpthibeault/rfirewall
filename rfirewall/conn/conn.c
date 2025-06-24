@@ -12,12 +12,18 @@
 #include <sys/resource.h>
 #include <arpa/inet.h>
 #include <time.h>
-
 #include <rradix.h>
-
 #include <fcntl.h>
 
-radix_tree *connections = NULL;
+static struct ring_buffer *rb = NULL;
+static radix_tree *connections = NULL;
+
+static inline __attribute__((always_inline)) void 
+print_events_header() 
+{
+	printf("%s %-9s %-6s %-6s %-12s %-2s %-16s %-16s %-4s\n", 
+			"T", "TIME(s)", "UID", "PID", "COMM", "IP", "SADDR", "DADDR", "DPORT");
+}
 
 static int
 handle_event(void *ctx, void *data, size_t data_sz)
@@ -105,44 +111,62 @@ handle_event(void *ctx, void *data, size_t data_sz)
 	return 0;
 }
 
-static inline __attribute__((always_inline)) void 
-print_events_header() 
+int
+conn_init(int ringbuf_fd)
 {
-	printf("%s %-9s %-6s %-6s %-12s %-2s %-16s %-16s %-4s\n", 
-			"T", "TIME(s)", "UID", "PID", "COMM", "IP", "SADDR", "DADDR", "DPORT");
-}
-
-extern volatile sig_atomic_t exiting; // definition in rfirewall.c TODO put in some io.h ?
-
-void
-read_bpf_ringbuf(int ringbuf_fd) 
-{
-	struct ring_buffer *rb;
-	int err;
+	int ret = 0;
 
 	rb = ring_buffer__new(ringbuf_fd, &handle_event, NULL, NULL);
 	connections = radix_new();
 	
-	if (rb == NULL) {
+	if (rb == NULL) 
+	{
 		fprintf(stderr, "Error with ring_buffer__new() '%d', '%s'",
 			errno, strerror(errno));
-		err = -errno;
-		goto cleanup;
+		ret = -errno;
+	}
+	if (connections == NULL)
+	{
+		fprintf(stderr, "Error with radix_new()");				
+		ret = -1;
+	}
+	if (ret != 0)
+	{
+		conn_deinit();
+		goto done;
 	}
 
 	print_events_header();
 
-	while (!exiting) {
-		err = ring_buffer__poll(rb, 100);
-		if (err < 0 && err != -EINTR) {
-			fprintf(stderr, "Error polling ring buffer '%d', '%s'", -err, strerror(-err));
-			goto cleanup;
-		}
-		err = 0; /* reset err to return 0 if exiting */
+done:
+	return ret;
+}
+
+int
+conn_poll()
+{
+	int ret;
+
+	ret = ring_buffer__poll(rb, 100); // neg number (error) or num of records consumed
+
+	if (ret == -EAGAIN) // timeout, which is fine
+		return 0;
+
+	if (ret < 0 && ret != -EINTR) {
+		fprintf(stderr, "Error polling ring buffer '%d', '%s'", -ret, strerror(-ret));
+		return ret;
 	}
 
-	
-cleanup:
-	ring_buffer__free(rb);
+	return 0;
+}
+
+void
+conn_deinit()
+{
+	if (rb != NULL)
+		ring_buffer__free(rb);
+
+	if (connections != NULL)
+		radix_free(connections);
 }
 

@@ -36,6 +36,8 @@ struct nfq_event
 	// TODO: missing queue
 };
 
-int setup_queue(int queue_num, uint16_t addr_family);
+int filter_init(void);
+void filter_deinit(void);
+int filter_step(void);
 
 #endif // !__PACKETS_H__

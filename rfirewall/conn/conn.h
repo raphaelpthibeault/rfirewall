@@ -30,6 +30,8 @@ typedef struct
  * };
  */
 
-void read_bpf_ringbuf(int ringbuf_fd); 
+int conn_init(int ringbuf_fd);
+int conn_poll();
+void conn_deinit();
 
 #endif // !__CONN_H__

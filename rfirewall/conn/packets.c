@@ -4,6 +4,7 @@
 #include <unistd.h>
 #include <stdint.h>
 #include <stddef.h>
+#include <errno.h>
 
 #include <arpa/inet.h>
  
@@ -31,25 +32,24 @@ nfq_send_verdict(int queue_num, uint32_t id)
 {
 	char buf[MNL_SOCKET_BUFFER_SIZE];
 	struct nlmsghdr *nlh;
-	struct nlattr *nest;
 
 	nlh = nfq_nlmsg_put(buf, NFQNL_MSG_VERDICT, queue_num);
 	nfq_nlmsg_verdict_put(nlh, id, NF_ACCEPT);
 
-	/* example to set the connmark. First, start NFQA_CT section: */
+	/*
+	struct nlattr *nest;
+	// example to set the connmark. First, start NFQA_CT section:
 	nest = mnl_attr_nest_start(nlh, NFQA_CT);
-
-	/* then, add the connmark attribute: */
+	// then, add the connmark attribute:
 	mnl_attr_put_u32(nlh, CTA_MARK, htonl(42));
-	/* more conntrack attributes, e.g. CTA_LABELS could be set here */
-
-	/* end conntrack section */
+	// more conntrack attributes, e.g. CTA_LABELS could be set here
+	// end conntrack section
 	mnl_attr_nest_end(nlh, nest);
+	*/
 
 	if (mnl_socket_sendto(nl, nlh, nlh->nlmsg_len) < 0) 
 	{
 		perror("mnl_socket_send");
-		exit(EXIT_FAILURE);
 	}
 }
 	
@@ -113,7 +113,7 @@ queue_cb(const struct nlmsghdr *nlh, void *data)
 	return MNL_CB_OK;
 }
 
-/* 
+/* return values: 
  * -1: mnl_socket_open() failure
  * -2: mnl_socket_bind() failure
  * -3: malloc() failure
@@ -122,10 +122,10 @@ queue_cb(const struct nlmsghdr *nlh, void *data)
  * -6: mnl_socket_recvfrom() failure
  * -7: mnl_cb_run() failure
  * */
-int
+static int
 setup_queue(int queue_num, uint16_t addr_family)
 {
-	char *buf;
+	char *buf = NULL;
 	/* largest possible packet payload, plus netlink data overhead: */
 	size_t sizeof_buf = 0xffff + (MNL_SOCKET_BUFFER_SIZE / 2);
 	struct nlmsghdr *nlh;
@@ -138,6 +138,18 @@ setup_queue(int queue_num, uint16_t addr_family)
 	if (mnl_socket_bind(nl, 0, MNL_SOCKET_AUTOPID) < 0)
 		return -2;
 	port_id = mnl_socket_get_portid(nl);
+
+	/* set timeout on blocking calls */
+	struct timeval tv;
+	tv.tv_sec = 1;
+	tv.tv_usec = 0;
+	if (setsockopt(mnl_socket_get_fd(nl), SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv)) < 0) 
+	{
+		perror("setsockopt(SO_RCVTIMEO)");
+		ret = -8;
+		goto cleanup;
+	}
+
 
 	buf = malloc(sizeof_buf);
 	if (!buf)
@@ -175,33 +187,76 @@ setup_queue(int queue_num, uint16_t addr_family)
 		goto cleanup;
 	}
 
-	/* TODO: move this to some function for a filter thread */
-
 	printf("Setup Queue '%d' on IPV4, port '%u'... \n", queue_num, port_id);
-	int err = 1;
-	mnl_socket_setsockopt(nl, NETLINK_NO_ENOBUFS, &err, sizeof(int));
-	while (1)
-	{
-		err = mnl_socket_recvfrom(nl, buf, sizeof_buf);
-		if (err == -1)
-		{
-			ret = -6;			
-			goto cleanup;
-		}
-
-		err = mnl_cb_run(buf, err, 0, port_id, queue_cb, NULL);
-		if (err < 0)
-		{
-			ret = -7;
-			goto cleanup;
-		}
-	}
+	ret = 0;
 
 cleanup:
 	if (buf != NULL)
 		free(buf);
 
-	mnl_socket_close(nl);
+	if (ret < 0 && nl != NULL)
+		mnl_socket_close(nl);
+
 	return ret;	
+}
+
+static char *pkt_buf;
+
+int
+filter_init(void)
+{
+	int ret = setup_queue(0, AF_INET);
+	if (ret < 0)
+	{
+		fprintf(stderr, "setup_queue() failed, error '%d '", ret);	
+		return ret;
+	}
+
+	size_t sizeof_buf = 0xffff + (MNL_SOCKET_BUFFER_SIZE / 2);
+
+	pkt_buf = malloc(sizeof_buf);
+	if (!pkt_buf)
+		return -3;
+
+	int err = 1;
+	mnl_socket_setsockopt(nl, NETLINK_NO_ENOBUFS, &err, sizeof(int));
+
+	return 0;
+}
+
+void
+filter_deinit(void)
+{
+	if (pkt_buf != NULL)
+		free(pkt_buf);
+
+	if (nl != NULL)
+		mnl_socket_close(nl);
+}
+
+int
+filter_step(void)
+{
+	int ret;
+	// real clumsy should be global
+	size_t sizeof_buf = 0xffff + (MNL_SOCKET_BUFFER_SIZE / 2);
+
+	ret = mnl_socket_recvfrom(nl, pkt_buf, sizeof_buf);
+	if (ret < 0)
+	{
+		if (errno == EAGAIN || errno == EWOULDBLOCK)
+			return 0;
+		
+		perror("mnl_socket_recvfrom");
+		return -1;
+	}
+
+	if (mnl_cb_run(pkt_buf, ret, 0, port_id, queue_cb, NULL) < 0)
+	{
+		perror("mnl_cb_run");
+		return -1;
+	}
+
+	return 0;
 }
 
