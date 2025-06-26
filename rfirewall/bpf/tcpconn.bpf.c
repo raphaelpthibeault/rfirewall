@@ -22,14 +22,16 @@ struct {
 	__uint(map_flags, BPF_F_NO_PREALLOC);
 } sockets SEC(".maps");
 
-
 static __always_inline void
 fill_event(struct ebpf_event *e, struct sock *sk, __u16 family, pid_t pid, __u16 dport, __u8 type)
 {
-	if (family == AF_INET) {
+	if (family == AF_INET) 
+	{
 		BPF_CORE_READ_INTO(&e->saddr_v4, sk, __sk_common.skc_rcv_saddr);
 		BPF_CORE_READ_INTO(&e->daddr_v4, sk, __sk_common.skc_daddr);
-	} else if (family == AF_INET6) {
+	} 
+	else if (family == AF_INET6) 
+	{
 		BPF_CORE_READ_INTO(&e->saddr_v6, sk, __sk_common.skc_v6_rcv_saddr.in6_u.u6_addr32);
 		BPF_CORE_READ_INTO(&e->daddr_v6, sk, __sk_common.skc_v6_daddr.in6_u.u6_addr32);
 	}
@@ -50,17 +52,14 @@ filter_event(struct sock *sk, __u32 pid, __u32 uid)
 	__u16 family;
 	family = BPF_CORE_READ(sk, __sk_common.skc_family);
 
-	if (family != AF_INET && family != AF_INET6) {
+	if (family != AF_INET && family != AF_INET6) 
 		return true;
-	}
 
-	if (filter_pid && (int)pid != filter_pid) {
+	if (filter_pid && (int)pid != filter_pid) 
 		return true;
-	}
 
-	if (filter_uid != (uid_t)-1 && uid != filter_uid) {
+	if (filter_uid != (uid_t)-1 && uid != filter_uid) 
 		return true;
-	}
 
 	return false;
 }
@@ -78,9 +77,8 @@ enter_tcp_connect(struct pt_regs *ctx, struct sock *sk)
 	tid = pid_tgid;
 
 	uid = bpf_get_current_uid_gid(); // https://docs.ebpf.io/linux/helper-function/bpf_get_current_uid_gid/
-	if (filter_event(sk, pid, uid)) {
+	if (filter_event(sk, pid, uid))
 		return 0; // drop pkt
-	}
 
 	/* key: traffic identifier, value: socket  ; I wonder, I could probably use pid_tgid as key */
 	bpf_map_update_elem(&sockets, &tid, &sk, 0);
@@ -104,22 +102,20 @@ exit_tcp_connect(struct pt_regs *ctx, int ret, __u16 family)
 	tid = pid_tgid;
 
 	skpp = bpf_map_lookup_elem(&sockets, &tid);
-	if (skpp == NULL) {
+	if (skpp == NULL)
 		return 0;
-	}
 
-	if (ret) {
+	if (ret)
 		goto end;
-	}
 
 	sk = *skpp;
 	BPF_CORE_READ_INTO(&dport, sk, __sk_common.skc_dport);
 
 
 	e = bpf_ringbuf_reserve(&events, sizeof(struct ebpf_event), 0);
-	if (e == NULL) {
+	if (e == NULL) 
 		return 0;
-	}
+
 	fill_event(e, sk, family, pid, dport, TCP_EVENT_CONNECT);
 	bpf_ringbuf_submit(e, 0);
 
@@ -170,9 +166,9 @@ int BPF_KRETPROBE(inet_csk_accept_ret, struct sock *newsk)
 	BPF_CORE_READ_INTO(&dport, newsk, __sk_common.skc_dport);
 
 	e = bpf_ringbuf_reserve(&events, sizeof(struct ebpf_event), 0);
-	if (e == NULL) {
+	if (e == NULL)
 		return 0;
-	}
+
 	fill_event(e, newsk, family, pid, dport, TCP_EVENT_ACCEPT);
 	bpf_ringbuf_submit(e, 0);
 
@@ -199,13 +195,15 @@ int kprobe__tcp_close(struct pt_regs *ctx)
 	uid = uid_gid;
 	
 
-	if (filter_event(sk, pid, uid)) {
+	if (filter_event(sk, pid, uid)) 
+	{
 		return 0;
 	}
 
 	/* do not generate close event for unestablished connections */
 	oldstate = BPF_CORE_READ(sk, __sk_common.skc_num);
-	if (oldstate == TCP_SYN_SENT || oldstate == TCP_SYN_RECV || oldstate == TCP_NEW_SYN_RECV) {
+	if (oldstate == TCP_SYN_SENT || oldstate == TCP_SYN_RECV || oldstate == TCP_NEW_SYN_RECV) 
+	{
 		return 0;
 	}
 
@@ -213,7 +211,8 @@ int kprobe__tcp_close(struct pt_regs *ctx)
 	BPF_CORE_READ_INTO(&dport, sk, __sk_common.skc_dport);
 
 	e = bpf_ringbuf_reserve(&events, sizeof(struct ebpf_event), 0);
-	if (e == NULL) {
+	if (e == NULL) 
+	{
 		return 0;
 	}
 	fill_event(e, sk, family, pid, dport, TCP_EVENT_CLOSE);

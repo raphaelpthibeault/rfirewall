@@ -15,8 +15,11 @@
 #include <rradix.h>
 #include <fcntl.h>
 
+#include <pthread.h>
+
 static struct ring_buffer *rb = NULL;
 static radix_tree *connections = NULL;
+pthread_mutex_t connections_lock; /* lock for connections tree */
 
 static inline __attribute__((always_inline)) void 
 print_events_header() 
